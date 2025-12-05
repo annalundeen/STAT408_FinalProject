@@ -1,0 +1,310 @@
+---
+title: "Stat408FinalProject"
+output: word_document
+date: "2025-11-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preparation/Exploration/Cleaning
+Load packages
+```{R}
+library(lmtest)
+library(tidyverse)
+library(splines)
+library(glmnet)
+library(ggplot2)
+```
+
+Import Data
+```{R}
+low_pop_spotify <- read.csv("/Users/annalundeen/Downloads/low_popularity_spotify_data.csv")
+high_pop_spotify <- read.csv("/Users/annalundeen/Downloads/high_popularity_spotify_data.csv")
+```
+Reorder and Merge
+```{R}
+#reorder columns to match
+high_pop_reordered <- high_pop_spotify[, names(low_pop_spotify)]
+#merge two datasets (they came separate)
+merged_spotify <- rbind(low_pop_spotify, high_pop_reordered)
+head(merged_spotify)
+```
+
+## Data Exploration 
+Overview
+```{R}
+str(merged_spotify)
+dim(merged_spotify)
+sapply(merged_spotify, class)
+```
+Check for Missing Values
+```{R}
+percent_missing <- colSums(is.na(merged_spotify)) / nrow(merged_spotify) * 100
+percent_missing
+```
+Preview Identifier Columns (to justify removal)
+```{R}
+head(merged_spotify[, c("uri", "track_id", "analysis_url", "track_href", "track_album_release_date", "track_name", "playlist_id", "track_album_id", "id", "track_album_release_date")])
+
+length(unique(merged_spotify$uri))
+length(unique(merged_spotify$track_id))
+length(unique(merged_spotify$analysis_url))
+length(unique(merged_spotify$track_href))
+length(unique(merged_spotify$track_album_release_date))
+length(unique(merged_spotify$track_name))
+length(unique(merged_spotify$playlist_id))
+length(unique(merged_spotify$track_album_id))
+length(unique(merged_spotify$id))
+length(unique(merged_spotify$track_album_release_date))
+```
+Look at frequency of categorical variables with many levels
+```{R}
+#genre
+length(unique(merged_spotify$playlist_genre))
+
+#subgenre (also large)
+length(unique(merged_spotify$playlist_subgenre))
+
+#playlist_genres (also look at normal genre?)
+table(merged_spotify$playlist_genre) |> sort(decreasing = TRUE) #unequal distribution - range from almost 600 to just 9
+
+#playlist name
+length(unique(merged_spotify$playlist_name))
+
+#track_artist
+length(unique(merged_spotify$track_artist))
+
+#album name
+length(unique(merged_spotify$track_album_name))
+```
+
+## Cleaning Data
+```{R}
+#everything except identifier columns and type (only 1 level)
+merged_spotify_relevant <- merged_spotify[, c("time_signature", "track_popularity", "speechiness", "danceability", "playlist_name", "track_artist", "duration_ms", "energy", "playlist_genre", "playlist_subgenre", "mode", "instrumentalness", "valence", "key", "tempo", "loudness", "acousticness", "liveness")]
+
+#check for NAs in the columns I keep
+colSums(is.na(merged_spotify_relevant))
+
+#remove rows with any NAs
+merged_spotify_relevant <- na.omit(merged_spotify_relevant)
+
+#make sure variable types are what I want them
+merged_spotify_relevant$playlist_name <- as.factor(merged_spotify_relevant$playlist_name)
+merged_spotify_relevant$track_artist <- as.factor(merged_spotify_relevant$track_artist)
+merged_spotify_relevant$duration_ms <- as.numeric(merged_spotify_relevant$duration_ms)
+merged_spotify_relevant$energy <- as.numeric(merged_spotify_relevant$energy)
+merged_spotify_relevant$playlist_genre <- as.factor(merged_spotify_relevant$playlist_genre)
+merged_spotify_relevant$playlist_subgenre <- as.factor(merged_spotify_relevant$playlist_subgenre)
+merged_spotify_relevant$mode <- as.factor(merged_spotify_relevant$mode)
+merged_spotify_relevant$instrumentalness <- as.numeric(merged_spotify_relevant$instrumentalness)
+merged_spotify_relevant$valence <- as.numeric(merged_spotify_relevant$valence)
+merged_spotify_relevant$key <- as.factor(merged_spotify_relevant$key)
+merged_spotify_relevant$tempo <- as.numeric(merged_spotify_relevant$tempo)
+merged_spotify_relevant$loudness <- as.numeric(merged_spotify_relevant$loudness)
+merged_spotify_relevant$acousticness <- as.numeric(merged_spotify_relevant$acousticness)
+merged_spotify_relevant$liveness <- as.numeric(merged_spotify_relevant$liveness)
+merged_spotify_relevant$time_signature <- as.factor(merged_spotify_relevant$time_signature)
+merged_spotify_relevant$track_popularity <- as.numeric(merged_spotify_relevant$track_popularity)
+merged_spotify_relevant$speechiness <- as.numeric(merged_spotify_relevant$speechiness)
+merged_spotify_relevant$danceability <- as.numeric(merged_spotify_relevant$danceability)
+```
+
+## Summary Statistics 
+```{R}
+summary(merged_spotify_relevant)
+
+numeric_vars <- merged_spotify_relevant[sapply(merged_spotify_relevant, is.numeric)]
+summary(numeric_vars)
+
+#get correlation matrix
+cor(numeric_vars)
+
+categorical_vars <- merged_spotify_relevant[sapply(merged_spotify_relevant, is.factor)]
+summary(categorical_vars)
+```
+
+## Visualize Relationships
+```{R}
+#graph potential relationships- exploratory
+
+ggplot(merged_spotify_relevant, aes(x=speechiness, y=track_popularity)) + geom_point()
+#lots of points concentrated up and down y axis but also points most places
+
+ggplot(merged_spotify_relevant, aes(x=danceability, y=track_popularity)) + geom_point()
+#minimal relationship
+
+ggplot(merged_spotify_relevant, aes(x=energy, y=track_popularity)) + geom_point()
+#minimal relationship
+
+ggplot(merged_spotify_relevant, aes(x=instrumentalness, y=track_popularity)) + geom_point()
+#lots at both ends
+
+ggplot(merged_spotify_relevant, aes(x=valence, y=track_popularity)) + geom_point()
+#almost no relationship
+
+ggplot(merged_spotify_relevant, aes(x=tempo, y=track_popularity)) + geom_point()
+#big cloud
+
+ggplot(merged_spotify_relevant, aes(x=loudness, y=track_popularity)) + geom_point()
+#horn shape?
+
+ggplot(merged_spotify_relevant, aes(x=acousticness, y=track_popularity)) + geom_point()
+#lots near zero but all over 
+```
+
+# Full Model Attempt
+```{R, eval=FALSE}
+#Error: vector memory limit of 16 Gb reached, going to try with less variables included
+mod_max <- lm(track_popularity ~ .*. , merged_spotify_relevant)
+summary(mod_max)
+```
+
+# Reduced Model Attempt
+```{R}
+#excluding variables with too many levels and type because there is only one level
+red_data <- merged_spotify[, c("time_signature", "track_popularity", "speechiness", "danceability", "duration_ms", "energy", "mode", "instrumentalness", "valence", "key", "tempo", "loudness", "acousticness", "liveness")]
+
+mod_red <- lm(track_popularity ~ ., data = red_data)
+summary(mod_red)
+```
+
+```{R}
+#checking assumptions
+plot(mod_red, 1)
+plot(mod_red, 2)
+
+bptest(mod_red) #low p-value (violated)
+ks.test(rstandard(mod_red), "pnorm") # low p-value (violated)
+```
+
+```{R}
+#variable selection
+mod_best <- step(mod_red,direction="both",trace=0) # trace = 0 does not include the trace of the variables
+summary(mod_best)
+```
+
+```{R}
+#checking assumptions
+plot(mod_best, 1)
+plot(mod_best, 2)
+
+bptest(mod_best) #low p-value (violated)
+ks.test(rstandard(mod_best), "pnorm") # low p-value (violated)
+```
+
+# Splines
+```{R}
+#trying b splines
+
+#6 means generating 6 spline basis functions/6 parameters; degree=3 by default
+#bs(X, df=6) creates 3 interior knots, a cubic spline (degree 3), and 6 basis functions
+
+mod_bs <- lm(track_popularity ~
+               bs(speechiness, df = 6) +
+               bs(danceability, df = 6) +
+               bs(duration_ms, df = 6) +
+               bs(energy, df = 6) +
+               bs(instrumentalness, df = 6) +
+               bs(valence, df = 6) +
+               bs(key, df = 6) +
+               bs(loudness, df = 6) +
+               bs(acousticness, df = 6) + 
+               time_signature,
+             data = red_data)
+
+
+summary(mod_bs)
+
+#checking assumptions
+plot(mod_bs, 1)
+plot(mod_bs, 2)
+
+bptest(mod_bs) #low p-value (violated)
+ks.test(rstandard(mod_bs), "pnorm") # low p-value (violated)
+```
+
+# Elastic Net Model
+```{R}
+#prep model matrix X and response variable y 
+X <- model.matrix(track_popularity ~ .,data=merged_spotify_relevant)[,-1] #removing intercept column bc glmnet automatically has own
+y <- merged_spotify_relevant$track_popularity
+
+#split the train and test data
+set.seed(123) #reproducibility
+n <- nrow(merged_spotify_relevant) #number observations in data
+
+train_index <- sample(1:n, size=0.8*n) #training on random 80%
+test_index <- setdiff(1:n, train_index) #test on other 20%
+
+X_train <- X[train_index, ] #train predictor matrix
+y_train <- y[train_index] # train response vector
+
+X_test <- X[test_index, ] #test predictor matrix
+y_test <- y[test_index] #test response vector
+
+#create cv folds
+K <- 5 #number folds
+set.seed(123) #reproducibility
+foldid <- sample(rep(1:K, length.out = length(y_train))) #randomly assigning to folds
+
+#cv with many alphas
+alpha_seq <- seq(0, 1, 0.5) #vector of values to try
+alpha_cv <- numeric(length(alpha_seq)) #sorage vector
+
+for (i in seq_along(alpha_seq)) {
+  a <- alpha_seq[i]
+  lam_a <- cv.glmnet( #crossvalidated glmnet for this alpha
+    x = X_train,
+    y = y_train,
+    foldid = foldid,
+    alpha = a
+  )
+  
+  best_lambda <- lam_a$lambda.min #get best lambda by minimizing CV error
+  alpha_cv[i] <- lam_a$cvm[lam_a$lambda == best_lambda] #get MSPE
+}
+
+#plot alpha vs CV error
+plot(alpha_seq, alpha_cv, type="b", main="Elastic Net Cross-Validation Across Alpha", xlab = "alpha", ylab = "MSPE")
+
+#select best alpha
+best_alpha <- alpha_seq[which.min(alpha_cv)]
+best_alpha
+
+#fit final elastic net model with best alpha
+cv_elastic <- cv.glmnet(
+  x = X_train, 
+  y = y_train,
+  foldid = foldid,
+  alpha = best_alpha
+)
+
+plot(cv_elastic)
+best_lambda <- cv_elastic$lambda.min #get optimal lambda for final model
+best_lambda
+
+coef(cv_elastic, s="lambda.min") #coefficient values at optimal lambda
+
+#predict on test data and evaluate model
+predictions <- predict(cv_elastic, newx = X_test, s = "lambda.min")
+predictions <- as.numeric(predict(cv_elastic, newx = X_test, s = "lambda.min"))
+
+#predictions <- predict(cv_elasticnet, newx=X, s="lambda.min")
+
+#evaluation metrics
+MSE <- mean((y_test - predictions)^2)
+MSE
+RMSE <- sqrt(MSE)
+RMSE
+MAE <- mean(abs(y_test - predictions))
+MAE
+R2 <- 1 - sum((y_test - predictions)^2) / sum((y_test - mean(y_test))^2)
+R2
+
+#plot predicted vs observed 
+ggplot(data = data.frame(Observed=y_test, Predicted=as.vector(predictions), check.names = FALSE), aes(x=Observed, y=Predicted)) + geom_point(alpha=0.5) + geom_abline(slope=1, intercept=0, color="red", linetype=2) + labs(title="Elastic Net Predictions vs Observed Track Popularity")
+
+```
